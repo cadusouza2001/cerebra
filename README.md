@@ -79,12 +79,8 @@ pip install requests beautifulsoup4 "txtai[pipeline]" google-generativeai torch 
 
 ### 3\. Configuração
 
-Abra o arquivo `generate_qa_dataset.py` e insira sua chave de API do Gemini no local indicado:
-
-```python
-# Substitua "YOUR_API_KEY_HERE" pela sua chave de API real
-genai.configure(api_key="YOUR_API_KEY_HERE")
-```
+Defina a variável de ambiente `GEMINI_API_KEY` com sua chave de API do Gemini.
+O script `generate_qa_dataset.py` irá lê-la automaticamente.
 
 ## 📈 Ordem de Execução
 

@@ -13,11 +13,14 @@ CHUNK_SIZE = 300
 CHUNK_OVERLAP = 30
 
 # --- Configuração da API Gemini ---
-try:
-    genai.configure(api_key="AIzaSyD3TVtmWOpGaSo-4pfYgAV46an29GWt6iI")
-except Exception as e:
-    print("Chave de API não configurada.")
-    exit()
+# A chave da API agora é lida da variável de ambiente GEMINI_API_KEY
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise RuntimeError(
+        "GEMINI_API_KEY não definida. Defina a variável de ambiente antes de executar o script."
+    )
+
+genai.configure(api_key=api_key)
 
 def create_chunks(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
     """Divide um texto longo em pedaços menores e sobrepostos."""
