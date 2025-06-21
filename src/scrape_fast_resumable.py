@@ -8,6 +8,9 @@ import json
 import time
 import os
 
+# Script assíncrono para coletar o conteúdo da documentação. Apesar de
+# não envolver IA diretamente, ele é o primeiro passo para alimentar o
+# sistema com dados que mais tarde serão usados no treinamento.
 # --- Configurações e Nomes de Arquivos ---
 BASE_URL = "https://spark.apache.org/docs/latest/"
 START_URL = BASE_URL + "index.html"
@@ -57,7 +60,10 @@ async def worker(session, queue, lock):
                         
                         if soup.body:
                             # --- LÓGICA DE LIMPEZA ADICIONADA AQUI ---
-                            # Remove menus de navegação, rodapés e cabeçalhos antes de extrair o texto.
+                            # Removemos elementos que geram "ruído" (menus,
+                            # cabeçalhos, etc.) para que o dataset fique o mais
+                            # limpo possível e facilite a etapa de geração de
+                            # QA.
                             for nav in soup.body.find_all('nav'):
                                 nav.decompose()
                             for footer in soup.body.find_all('footer'):
