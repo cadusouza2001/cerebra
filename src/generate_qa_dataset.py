@@ -1,4 +1,4 @@
-# generate_qa_dataset.py (Versão com a Correção Final das Chaves do JSON)
+# generate_qa_dataset_generative.py (Nova Versão com Prompt Aprimorado)
 
 import os
 import json
@@ -7,14 +7,14 @@ import random
 import google.generativeai as genai
 
 # --- Configurações ---
-INPUT_DATA_FILE = "spark_docs_scrape/spark_documentation_guides.jsonl" 
-OUTPUT_FILE = "qa_dataset/spark_qa_dataset_final.jsonl"
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 150
+INPUT_DATA_FILE = "spark_docs_scrape/spark_guides_dataset_clean.jsonl" 
+OUTPUT_FILE = "spark_qa_generative_dataset.jsonl"
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 30
 
 # --- Configuração da API Gemini ---
 try:
-    genai.configure(api_key="<key>")
+    genai.configure(api_key="AIzaSyD3TVtmWOpGaSo-4pfYgAV46an29GWt6iI")
 except Exception as e:
     print("Chave de API não configurada.")
     exit()
@@ -31,34 +31,50 @@ def create_chunks(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
     return chunks
 
 def call_llm_for_qa(text_chunk):
-    """Faz uma chamada de API para gerar um par de P&R."""
-    # Usando o modelo Gemma que você confirmou que é válido
-    model = genai.GenerativeModel("gemma-3-27b-it") 
+    """Faz uma chamada de API com um prompt aprimorado para respostas generativas."""
+    # Usando um modelo poderoso para a geração
+    model = genai.GenerativeModel("gemma-3-27b-it")
+    
+    # --- PROMPT APRIMORADO E EM INGLÊS ---
     prompt = f"""
-    Sua tarefa é analisar o texto técnico fornecido e gerar exatamente um par de pergunta e resposta de alta qualidade.
-    RESTRIÇÕES CRÍTICAS:
-    1. A 'answer_text' DEVE SER uma substring exata e contígua do texto original.
-    2. Sua resposta deve ser APENAS um único objeto JSON válido com as chaves "question_text" e "answer_text".
-    Texto: "{text_chunk}"
-    Sua Resposta JSON:
+    Your task is to act as a helpful expert assistant who creates high-quality question-and-answer pairs from a given technical text.
+    Generate exactly one question and a complete, helpful answer.
+
+    CRITICAL INSTRUCTIONS:
+    1. The 'answer' should be a full, natural-sounding sentence or paragraph. It should be helpful and comprehensive. For example, if the question is "What is the command?", the answer should be "The command to use is `...`", not just "`...`".
+    2. The answer MUST be factually grounded in the provided "Text". Do not make up information.
+    3. Your response MUST BE ONLY a single, valid JSON object with the keys "question" and "answer".
+
+    EXAMPLE:
+    Text: "The --master option specifies the master URL for a distributed cluster, or local to run locally with one thread."
+    Your JSON Response:
+    {{
+      "question": "What is the purpose of the --master option in Spark?",
+      "answer": "The --master option is used to specify the master URL for a distributed cluster. You can also use 'local' to run it on a single thread locally."
+    }}
+
+    Now, process the following text:
+    ---
+    Text: "{text_chunk}"
+    ---
+    Your JSON Response:
     """
     try:
         request_options = {"timeout": 100}
-        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(temperature=0.3))
+        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(temperature=0.4))
         
         if not response.parts:
-            print(f"  └─ [AVISO] Resposta da API bloqueada ou vazia. Feedback: {response.prompt_feedback}")
+            print(f"  └─ [AVISO] Resposta da API bloqueada. Feedback: {response.prompt_feedback}")
             return None
             
         json_text = response.text.strip().replace("```json", "").replace("```", "")
         qa_pair = json.loads(json_text)
         
-        # --- CORREÇÃO 1: VERIFICAR A CHAVE CORRETA ---
-        # Verificamos por "question_text" em vez de "question".
-        if "question_text" in qa_pair and "answer_text" in qa_pair:
+        # A nova verificação simples: apenas se as chaves existem.
+        if "question" in qa_pair and "answer" in qa_pair:
             return qa_pair
         else:
-            print(f"  └─ [AVISO] JSON retornado não continha as chaves esperadas. Recebido: {qa_pair}")
+            print(f"  └─ [AVISO] JSON retornado não continha as chaves 'question' ou 'answer'. Recebido: {qa_pair}")
             return None
             
     except Exception as e:
@@ -66,16 +82,10 @@ def call_llm_for_qa(text_chunk):
         return None
 
 # --- Lógica principal do script ---
-
 print(f"Carregando documentação do arquivo '{INPUT_DATA_FILE}'...")
 scraped_pages = []
-try:
-    with open(INPUT_DATA_FILE, 'r', encoding='utf-8') as f:
-        for line in f:
-            scraped_pages.append(json.loads(line))
-except FileNotFoundError:
-    print(f"[ERRO] Arquivo de entrada '{INPUT_DATA_FILE}' não encontrado!")
-    exit()
+with open(INPUT_DATA_FILE, 'r', encoding='utf-8') as f:
+    for line in f: scraped_pages.append(json.loads(line))
 
 print("Dividindo o conteúdo das páginas em pedaços (chunks)...")
 all_chunks = []
@@ -85,15 +95,13 @@ for page in scraped_pages:
         all_chunks.extend(page_chunks)
 print(f"Gerados {len(all_chunks)} pedaços de texto para processamento.")
 
-# Para rodar em todos os dados, use a linha abaixo
 chunks_to_process = all_chunks
-# Para um teste rápido, descomente a linha abaixo e comente a de cima
-# chunks_to_process = all_chunks[:50] 
-
 with open(OUTPUT_FILE, 'w') as f: pass
 
+# Valor seguro para respeitar os limites da API
 SECONDS_PER_REQUEST = 4 
-print(f"Processando {len(chunks_to_process)} pedaços com a API (esperando {SECONDS_PER_REQUEST}s entre chamadas)...")
+
+print(f"Processando {len(chunks_to_process)} pedaços com a API...")
 success_counter = 0
 for i, chunk in enumerate(chunks_to_process):
     print(f"\n--- Processando chunk {i + 1}/{len(chunks_to_process)} ---")
@@ -102,19 +110,10 @@ for i, chunk in enumerate(chunks_to_process):
     qa_pair = call_llm_for_qa(chunk)
     
     if qa_pair:
-        answer_start = chunk.find(qa_pair["answer_text"])
-        if answer_start != -1:
-            # --- CORREÇÃO 2: USAR A CHAVE CORRETA AO SALVAR ---
-            squad_item_to_save = {
-                "context": chunk,
-                "question": qa_pair["question_text"], # Usamos a chave correta aqui
-                "answers": {"text": [qa_pair["answer_text"]], "answer_start": [answer_start]}
-            }
-            with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(squad_item_to_save, ensure_ascii=False) + '\n')
-            success_counter += 1
-            print(f"  └─ [SUCESSO] Par de P&R salvo. ({success_counter} no total)")
-        else:
-            print(f"  └─ [AVISO] Resposta da API ('{qa_pair['answer_text']}') não encontrada no contexto original.")
+        # A lógica de verificação 'find' foi removida, pois não é mais necessária
+        with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(qa_pair, ensure_ascii=False) + '\n')
+        success_counter += 1
+        print(f"  └─ [SUCESSO] Par de P&R generativo salvo. ({success_counter} no total)")
 
 print(f"\nProcesso concluído. Gerados e salvos {success_counter} pares de P&R no arquivo '{OUTPUT_FILE}'.")

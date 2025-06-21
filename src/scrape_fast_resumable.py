@@ -1,4 +1,4 @@
-# scrape_fast_resumable.py (Versão Final com Filtro de API)
+# scrape_fast_resumable.py (Versão Final - Rápida, Resumível e com Limpeza de Ruído)
 
 import asyncio
 import aiohttp
@@ -11,9 +11,10 @@ import os
 # --- Configurações e Nomes de Arquivos ---
 BASE_URL = "https://spark.apache.org/docs/latest/"
 START_URL = BASE_URL + "index.html"
-OUTPUT_FILE = "spark_documentation_guides.jsonl" # Novo nome para refletir o conteúdo filtrado
-VISITED_URLS_FILE = "visited_urls_guides.log"
-MAX_CONCURRENT_REQUESTS = 100
+# Novos nomes de arquivo para indicar que os dados são limpos
+OUTPUT_FILE = "spark_guides_dataset_clean.jsonl" 
+VISITED_URLS_FILE = "visited_urls_clean.log"
+MAX_CONCURRENT_REQUESTS = 50
 
 # --- Armazenamento Compartilhado ---
 visited_urls = set()
@@ -31,27 +32,22 @@ def load_visited_urls():
     return visited
 
 async def worker(session, queue, lock):
-    """Pega uma URL da fila, processa e adiciona novos links de volta à fila, ignorando /api/."""
+    """Pega uma URL da fila, processa e adiciona novos links de volta à fila."""
     global page_counter
     while True:
         try:
             url = await queue.get()
             canonical_url = url.split('#')[0]
 
-            # Adquire o lock ANTES de verificar e modificar a lista de visitados
             async with lock:
-                # A verificação agora inclui o filtro para ignorar links de API
                 if (not canonical_url or 
                     not canonical_url.startswith(BASE_URL) or 
-                    "/api/" in canonical_url  or "/sql-ref-" in canonical_url or
+                    "/api/" in canonical_url or
                     canonical_url in visited_urls):
                     queue.task_done()
                     continue
-                
-                # Marca como visitado IMEDIATAMENTE para evitar que outros workers o peguem
                 visited_urls.add(canonical_url)
             
-            # Agora que o URL está "reivindicado", podemos fazer a operação de rede demorada
             print(f"Rastreando: {canonical_url}")
             try:
                 async with session.get(canonical_url, timeout=15) as response:
@@ -60,23 +56,34 @@ async def worker(session, queue, lock):
                         soup = BeautifulSoup(html, 'html.parser')
                         
                         if soup.body:
+                            # --- LÓGICA DE LIMPEZA ADICIONADA AQUI ---
+                            # Remove menus de navegação, rodapés e cabeçalhos antes de extrair o texto.
+                            for nav in soup.body.find_all('nav'):
+                                nav.decompose()
+                            for footer in soup.body.find_all('footer'):
+                                footer.decompose()
+                            for header in soup.body.find_all('header'):
+                                header.decompose()
+                            # Você pode adicionar mais seletores aqui se encontrar mais ruído, ex:
+                            # for sidebar in soup.body.select('div.sidebar'):
+                            #     sidebar.decompose()
+                            
                             text = soup.body.get_text(separator='\n', strip=True)
                             if len(text.strip()) > 200:
                                 item_to_save = {"url": canonical_url, "content": text}
                                 async with lock:
-                                    # Salva o conteúdo e o progresso
                                     with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
                                         f.write(json.dumps(item_to_save, ensure_ascii=False) + '\n')
                                     with open(VISITED_URLS_FILE, 'a', encoding='utf-8') as f:
                                         f.write(canonical_url + '\n')
                                     page_counter += 1
-                                print(f"  └─ [SUCESSO] Conteúdo salvo. ({page_counter} páginas de guias salvas)")
+                                print(f"  └─ [SUCESSO] Conteúdo limpo salvo. ({page_counter} páginas salvas)")
                         
-                        # Adiciona novos links (já filtrados) à fila
                         for link in soup.find_all('a', href=True):
-                            href = link['href']
-                            full_url = urljoin(canonical_url, href)
-                            await queue.put(full_url)
+                            href = link.get('href')
+                            if href:
+                                full_url = urljoin(canonical_url, href)
+                                await queue.put(full_url)
             except Exception as e:
                 print(f"  └─ [FALHA] Erro ao processar {canonical_url}: {e}")
 
@@ -111,7 +118,7 @@ if __name__ == "__main__":
     end_time = time.time()
 
     print("\n" + "="*50)
-    print("Rastreamento com Filtro de API Completo!")
+    print("Rastreamento com Limpeza de Ruído Completo!")
     print(f"Tempo total: {end_time - start_time:.2f} segundos")
     print(f"Total de páginas de guias salvas nesta sessão: {page_counter}.")
     print(f"Os resultados estão em '{OUTPUT_FILE}' e o progresso em '{VISITED_URLS_FILE}'.")
