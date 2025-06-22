@@ -4,6 +4,8 @@
 # (via API) para gerar pares de Pergunta e Resposta automaticamente.
 # Assim, criamos um dataset de QA supervisionado que será usado no
 # treinamento do modelo especialista.
+# Ele complementa a fase de "curadoria de dados" discutida em aula,
+# garantindo exemplos de qualidade para o futuro fine-tuning.
 
 import os
 import json
@@ -18,7 +20,7 @@ import google.generativeai as genai
 INPUT_DATA_FILE = "spark_docs_scrape/spark_guides_dataset_clean.jsonl"
 OUTPUT_FILE = "spark_qa_generative_dataset.jsonl"
 CHUNK_SIZE = 300
-CHUNK_OVERLAP = 30
+CHUNK_OVERLAP = 30  # Pequena sobreposição para não perder contexto
 
 # --- Configuração da API Gemini ---
 # Para usar o modelo da Google, precisamos da chave de API.
@@ -56,7 +58,8 @@ def call_llm_for_qa(text_chunk):
     # (no caso, Gemini) para gerar as perguntas e respostas a partir
     # de cada trecho da documentação.
     # Esse dataset é supervisionado porque já conhecemos a resposta
-    # correta baseada no texto de origem.
+    # correta baseada no texto de origem. Assim, reforçamos o
+    # conceito de "treinamento supervisionado" visto em aula.
     # Usando um modelo poderoso para a geração
     model = genai.GenerativeModel("gemma-3-27b-it")
 
@@ -134,6 +137,7 @@ print(f"Processando {len(chunks_to_process)} pedaços com a API...")
 success_counter = 0
 for i, chunk in enumerate(chunks_to_process):
     print(f"\n--- Processando chunk {i + 1}/{len(chunks_to_process)} ---")
+    # Pausa simples para respeitar limites da API e evitar bloqueios.
     time.sleep(SECONDS_PER_REQUEST)
 
     qa_pair = call_llm_for_qa(chunk)
@@ -147,4 +151,8 @@ for i, chunk in enumerate(chunks_to_process):
         success_counter += 1
         print(f"  └─ [SUCESSO] Par de P&R generativo salvo. ({success_counter} no total)")
 
-print(f"\nProcesso concluído. Gerados e salvos {success_counter} pares de P&R no arquivo '{OUTPUT_FILE}'.")
+# Ao final teremos um conjunto de pares pergunta→resposta que
+# servirão de exemplos rotulados para treinar nosso modelo.
+print(
+    f"\nProcesso concluído. Gerados e salvos {success_counter} pares de P&R no arquivo '{OUTPUT_FILE}'."
+)

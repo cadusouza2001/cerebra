@@ -5,6 +5,11 @@ import json
 import random
 import torch
 
+# Avalia o desempenho do modelo treinado em algumas amostras do dataset.
+# A ideia é verificar qualitativamente se ele aprendeu a gerar respostas
+# coerentes, reforçando os conceitos de métricas e validação discutidos
+# na disciplina.
+
 from qa_model import QADataset, Seq2SeqModel, Vocab, simple_tokenize, collate_batch
 
 DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
@@ -13,6 +18,8 @@ NUM_SAMPLES = int(os.getenv("NUM_SAMPLES", 5))
 
 
 def load_checkpoint(model_dir):
+    # Carregamos o modelo treinado e seu vocabulário. É o mesmo
+    # checkpoint salvo durante a fase de treinamento.
     ckpt = torch.load(os.path.join(model_dir, "model.pt"), map_location="cpu")
     vocab = Vocab([])
     vocab.itos = ckpt["vocab"]
@@ -27,6 +34,10 @@ def main():
     model.eval()
     dataset = QADataset(DATASET_FILE, vocab)
 
+    # Selecionamos aleatoriamente algumas amostras para inspecionar
+    # as respostas geradas. É uma forma simples de avaliação
+    # qualitativa, além das métricas automáticas vistas em aula.
+
     samples = random.sample(range(len(dataset)), min(NUM_SAMPLES, len(dataset)))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
@@ -37,6 +48,8 @@ def main():
         expected = " ".join(dataset.answers[idx])
 
         q_tensor = torch.tensor([q_idxs], dtype=torch.long, device=device)
+        # Geração da resposta pelo modelo, assim como fazemos na fase
+        # de inferência do sistema.
         pred_idxs = model.generate(q_tensor, vocab.bos_index, vocab.eos_index)
         prediction = vocab.decode(pred_idxs)
 

@@ -2,11 +2,19 @@ import os
 import json
 from txtai.embeddings import Embeddings
 
+# Este módulo lida com a parte de "recuperação" (Retrieval) do
+# RAG. Geramos embeddings semânticos para cada página da
+# documentação, permitindo depois buscar trechos relevantes para
+# uma pergunta.
+
 # Este script cria o "Bibliotecário" do nosso sistema RAG. Ele
 # converte cada página da documentação em um vetor de embeddings e
 # constrói um índice para busca semântica. Esse passo é essencial para
 # que, na fase de pergunta, possamos recuperar os trechos de texto mais
 # relevantes.
+# Os embeddings funcionam como a representação vetorial de cada
+# documento, conceito que estudamos em NLP para permitir medidas de
+# similaridade entre textos.
 
 # Configurable paths
 DATA_FILE = os.getenv("SCRAPED_FILE", "spark_docs_scrape/spark_guides_dataset_clean.jsonl")
@@ -38,6 +46,7 @@ def main():
     print(f"{len(docs)} documentos carregados. Criando embeddings...")
 
     # Aqui geramos um vetor para cada documento usando o modelo pré-treinado.
+    # O processo é similar à etapa de vetorização vista nas aulas de NLP.
     embeddings = Embeddings({"path": MODEL_NAME})
     embeddings.index(docs)
 

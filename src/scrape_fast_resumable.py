@@ -11,6 +11,8 @@ import os
 # Script assíncrono para coletar o conteúdo da documentação. Apesar de
 # não envolver IA diretamente, ele é o primeiro passo para alimentar o
 # sistema com dados que mais tarde serão usados no treinamento.
+# Em IA falamos da importância de ter um dataset bem curado e
+# representativo; esta etapa garante justamente essa base.
 # --- Configurações e Nomes de Arquivos ---
 BASE_URL = "https://spark.apache.org/docs/latest/"
 START_URL = BASE_URL + "index.html"
@@ -127,4 +129,6 @@ if __name__ == "__main__":
     print("Rastreamento com Limpeza de Ruído Completo!")
     print(f"Tempo total: {end_time - start_time:.2f} segundos")
     print(f"Total de páginas de guias salvas nesta sessão: {page_counter}.")
-    print(f"Os resultados estão em '{OUTPUT_FILE}' e o progresso em '{VISITED_URLS_FILE}'.")
+    print(
+        f"Os resultados estão em '{OUTPUT_FILE}' e o progresso em '{VISITED_URLS_FILE}'."
+    )
