@@ -1,69 +1,72 @@
-# generate_qa_dataset_generative.py
-#
-# Este script lê o texto raspado da documentação e utiliza o modelo Gemini
-# (via API) para gerar pares de Pergunta e Resposta automaticamente.
-# Assim, criamos um dataset de QA supervisionado que será usado no
-# treinamento do modelo especialista.
-# Ele complementa a fase de "curadoria de dados" discutida em aula,
-# garantindo exemplos de qualidade para o futuro fine-tuning.
+from __future__ import annotations
 
-import os
 import json
+import os
 import time
-import random
+from multiprocessing import Lock, Process, Queue
+from pathlib import Path
+from typing import Iterable, Tuple
+
 import google.generativeai as genai
 
-# --- Configurações ---
-# Onde leremos o texto de entrada raspado e onde salvaremos as novas
-# perguntas e respostas geradas. A divisão em "chunks" impede que o
-# prompt fique gigante e ajuda o modelo a focar em pequenos trechos do texto.
+"""Gera pares de Pergunta e Resposta de forma assíncrona usando o Gemini.
+
+Aceita múltiplas chaves de API em paralelo e registra quais
+requisições foram bem-sucedidas ou falharam. Se a execução for interrompida,
+basta rodar novamente para continuar do ponto em que parou.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Configurações
+# ---------------------------------------------------------------------------
+
 INPUT_DATA_FILE = "spark_docs_scrape/spark_guides_dataset_clean.jsonl"
-OUTPUT_FILE = "spark_qa_generative_dataset.jsonl"
-CHUNK_SIZE = 300
-CHUNK_OVERLAP = 30  # Pequena sobreposição para não perder contexto
+OUTPUT_FILE = os.getenv("OUTPUT_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 
-# --- Configuração da API Gemini ---
-# Para usar o modelo da Google, precisamos da chave de API.
-# Guardamos essa chave em uma variável de ambiente para não expor
-# credenciais no código.
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise RuntimeError(
-        "GEMINI_API_KEY não definida. Defina a variável de ambiente antes de executar o script."
-    )
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "300"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "30"))
 
-genai.configure(api_key=api_key)
+SUCCESS_LOG = os.getenv("SUCCESS_LOG", "qa_dataset/processed_chunks.log")
+FAILED_LOG = os.getenv("FAILED_LOG", "qa_dataset/failed_chunks.log")
 
-def create_chunks(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+# A API Gemini permite 30 requisições por minuto por chave
+RATE_LIMIT = 30  # requisições por minuto (por chave)
+
+# Recupera múltiplas chaves separadas por vírgula
+API_KEYS = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
+if not API_KEYS:
+    single_key = os.getenv("GEMINI_API_KEY")
+    if single_key:
+        API_KEYS = [single_key]
+    else:
+        raise RuntimeError(
+            "Nenhuma chave encontrada. Defina GEMINI_API_KEYS ou GEMINI_API_KEY."
+        )
+
+INTERVAL = 60.0 / RATE_LIMIT
+
+
+# ---------------------------------------------------------------------------
+# Utilidades
+# ---------------------------------------------------------------------------
+
+def create_chunks(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     """Divide um texto longo em pedaços menores e sobrepostos."""
-    # Dividir em pequenos segmentos ajuda na eficiência da geração e é
-    # similar ao pré-processamento que fazemos ao treinar modelos de
-    # linguagem: quebramos textos em partes para depois criar embeddings
-    # ou passar por uma rede neural.
-    if not text: return []
-    chunks = []
+    if not text:
+        return []
+    chunks: list[str] = []
     start = 0
     while start < len(text):
         end = start + size
         chunks.append(text[start:end])
-        # Avançamos um pouco menos que "size" para criar sobreposição
-        # entre os pedaços. Assim evitamos perder informações que
-        # poderiam ficar na fronteira do chunk.
         start += size - overlap
     return chunks
 
-def call_llm_for_qa(text_chunk):
-    """Faz uma chamada de API com um prompt aprimorado para respostas generativas."""
-    # Esta função é o "lado Generative" do RAG: usamos um LLM
-    # (no caso, Gemini) para gerar as perguntas e respostas a partir
-    # de cada trecho da documentação.
-    # Esse dataset é supervisionado porque já conhecemos a resposta
-    # correta baseada no texto de origem. Assim, reforçamos o
-    # conceito de "treinamento supervisionado" visto em aula.
-    # Usando um modelo poderoso para a geração
-    model = genai.GenerativeModel("gemma-3-27b-it")
 
-    # --- PROMPT APRIMORADO E EM INGLÊS ---
+def call_llm_for_qa(model: genai.GenerativeModel, text_chunk: str) -> dict | None:
+    """Envia o trecho de texto ao modelo e retorna o par QA gerado."""
+
     prompt = f"""
     Your task is to act as a helpful expert assistant who creates high-quality question-and-answer pairs from a given technical text.
     Generate exactly one question and a complete, helpful answer.
@@ -87,72 +90,135 @@ def call_llm_for_qa(text_chunk):
     ---
     Your JSON Response:
     """
+
     try:
-        request_options = {"timeout": 100}
-        response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(temperature=0.4))
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(temperature=0.4),
+            request_options={"timeout": 100},
+        )
 
         if not response.parts:
-            print(f"  └─ [AVISO] Resposta da API bloqueada. Feedback: {response.prompt_feedback}")
+            print("  └─ [AVISO] Resposta da API bloqueada.")
             return None
 
-        json_text = response.text.strip().replace("```json", "").replace("```", "")
+        json_text = (
+            response.text.strip().replace("```json", "").replace("```", "")
+        )
         qa_pair = json.loads(json_text)
-        # Verificamos se o modelo realmente retornou as chaves esperadas.
-        # Isso evita adicionar ao dataset respostas mal formatadas que
-        # poderiam atrapalhar o treinamento supervisionado.
+
         if "question" in qa_pair and "answer" in qa_pair:
             return qa_pair
-        else:
-            print(f"  └─ [AVISO] JSON retornado não continha as chaves 'question' ou 'answer'. Recebido: {qa_pair}")
-            return None
-
-    except Exception as e:
-        print(f"  └─ [ERRO] Ocorreu um erro na chamada da API: {e}")
+        print(
+            "  └─ [AVISO] JSON retornado não continha as chaves esperadas. Ignorado."
+        )
+        return None
+    except Exception as exc: 
+        print(f"  └─ [ERRO] Falha na chamada da API: {exc}")
         return None
 
-# --- Lógica principal do script ---
-print(f"Carregando documentação do arquivo '{INPUT_DATA_FILE}'...")
-scraped_pages = []
-with open(INPUT_DATA_FILE, 'r', encoding='utf-8') as f:
-    for line in f:
-        # O arquivo .jsonl possui um JSON por linha com o texto de cada página
-        scraped_pages.append(json.loads(line))
 
-print("Dividindo o conteúdo das páginas em pedaços (chunks)...")
-all_chunks = []
-for page in scraped_pages:
-    if page.get("content"):
-        page_chunks = create_chunks(page["content"])
-        all_chunks.extend(page_chunks)
-print(f"Gerados {len(all_chunks)} pedaços de texto para processamento.")
+def load_jsonl(path: str) -> Iterable[dict]:
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            yield json.loads(line)
 
-chunks_to_process = all_chunks
-with open(OUTPUT_FILE, 'w') as f: pass
 
-# Valor seguro para respeitar os limites da API
-# (evita ultrapassar a cota de requisições por minuto)
-SECONDS_PER_REQUEST = 4
+# ---------------------------------------------------------------------------
+# Processamento em paralelo
+# ---------------------------------------------------------------------------
 
-print(f"Processando {len(chunks_to_process)} pedaços com a API...")
-success_counter = 0
-for i, chunk in enumerate(chunks_to_process):
-    print(f"\n--- Processando chunk {i + 1}/{len(chunks_to_process)} ---")
-    # Pausa simples para respeitar limites da API e evitar bloqueios.
-    time.sleep(SECONDS_PER_REQUEST)
+def worker(api_key: str, queue: Queue, lock: Lock) -> None:
+    """Processa chunks usando a chave especificada."""
 
-    qa_pair = call_llm_for_qa(chunk)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemma-3-27b-it")
 
-    if qa_pair:
-        # Cada par válido é gravado no dataset final. No fim teremos
-        # um conjunto de exemplos pergunta→resposta para treinar o
-        # modelo em aprendizado supervisionado.
-        with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(qa_pair, ensure_ascii=False) + '\n')
-        success_counter += 1
-        print(f"  └─ [SUCESSO] Par de P&R generativo salvo. ({success_counter} no total)")
+    last_request = 0.0
 
-# Ao final teremos um conjunto de pares pergunta→resposta que
-# servirão de exemplos rotulados para treinar nosso modelo.
-print(
-    f"\nProcesso concluído. Gerados e salvos {success_counter} pares de P&R no arquivo '{OUTPUT_FILE}'."
-)
+    while True:
+        item: Tuple[int, str] | None = queue.get()
+        if item is None:
+            break
+
+        idx, chunk = item
+
+        wait = INTERVAL - (time.time() - last_request)
+        if wait > 0:
+            time.sleep(wait)
+
+        qa_pair = call_llm_for_qa(model, chunk)
+        last_request = time.time()
+
+        with lock:
+            if qa_pair:
+                with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(qa_pair, ensure_ascii=False) + "\n")
+                with open(SUCCESS_LOG, "a", encoding="utf-8") as f:
+                    f.write(f"{idx}\n")
+            else:
+                with open(FAILED_LOG, "a", encoding="utf-8") as f:
+                    f.write(f"{idx}\n")
+
+
+def main() -> None:
+    for path in (OUTPUT_FILE, SUCCESS_LOG, FAILED_LOG):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(OUTPUT_FILE).touch(exist_ok=True)
+
+    print(f"Carregando documentação de '{INPUT_DATA_FILE}'...")
+    scraped_pages = list(load_jsonl(INPUT_DATA_FILE))
+
+    print("Dividindo em pedaços (chunks)...")
+    all_chunks: list[str] = []
+    for page in scraped_pages:
+        if page.get("content"):
+            all_chunks.extend(create_chunks(page["content"]))
+
+    print(f"Total de {len(all_chunks)} chunks gerados.")
+
+    processed = set()
+    if Path(SUCCESS_LOG).exists():
+        processed = {int(l.strip()) for l in open(SUCCESS_LOG, "r", encoding="utf-8") if l.strip()}
+
+    failed_previous: list[int] = []
+    if Path(FAILED_LOG).exists():
+        failed_previous = [int(l.strip()) for l in open(FAILED_LOG, "r", encoding="utf-8") if l.strip()]
+
+    queue: Queue[Tuple[int, str]] = Queue()
+
+    # Reprocessa primeiro os que falharam anteriormente
+    for idx in failed_previous:
+        if idx not in processed and idx < len(all_chunks):
+            queue.put((idx, all_chunks[idx]))
+
+    # Processa novos chunks ainda não executados
+    for idx, chunk in enumerate(all_chunks):
+        if idx not in processed and idx not in failed_previous:
+            queue.put((idx, chunk))
+
+    # Sentinelas para encerrar os processos
+    for _ in API_KEYS:
+        queue.put(None)
+
+    # Limpa o arquivo de falhas para a nova execução
+    Path(FAILED_LOG).write_text("")
+
+    lock = Lock()
+    processes = [Process(target=worker, args=(key, queue, lock)) for key in API_KEYS]
+
+    for p in processes:
+        p.start()
+    for p in processes:
+        p.join()
+
+    print("\nProcesso concluído.")
+    total_success = len({int(l.strip()) for l in open(SUCCESS_LOG, 'r', encoding='utf-8') if l.strip()})
+    print(f"Total de pares gerados com sucesso: {total_success}")
+    remaining_failures = len([l for l in open(FAILED_LOG, 'r', encoding='utf-8') if l.strip()])
+    if remaining_failures:
+        print(f"Falharam {remaining_failures} chunks. Consulte '{FAILED_LOG}' para reprocessar.")
+
+
+if __name__ == "__main__":  
+    main()

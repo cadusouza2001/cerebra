@@ -1,5 +1,3 @@
-# scrape_fast_resumable.py (Versão Final - Rápida, Resumível e com Limpeza de Ruído)
-
 import asyncio
 import aiohttp
 from bs4 import BeautifulSoup

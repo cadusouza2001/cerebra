@@ -1,14 +1,10 @@
-"""Pequeno sistema interativo para fazer perguntas ao modelo treinado."""
-
-# Aqui usamos o modelo seq2seq já treinado para responder novas
-# perguntas. É a fase de inferência de um modelo de NLP.
-
 import os
 import torch
 
 from qa_model import Seq2SeqModel, Vocab, simple_tokenize
 
-
+# Aqui usamos o modelo seq2seq já treinado para responder novas
+# perguntas. É a fase de inferência de um modelo de NLP.
 class SparkQASystem:
     def __init__(self, model_dir: str):
         # Carregamos o checkpoint salvo após o treinamento.

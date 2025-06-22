@@ -1,16 +1,12 @@
-"""Avalia o modelo simples de QA treinado com PyTorch."""
-
 import os
-import json
 import random
 import torch
 
 # Avalia o desempenho do modelo treinado em algumas amostras do dataset.
 # A ideia é verificar qualitativamente se ele aprendeu a gerar respostas
-# coerentes, reforçando os conceitos de métricas e validação discutidos
-# na disciplina.
+# coerentes, usando os conceitos de métricas e validação.
 
-from qa_model import QADataset, Seq2SeqModel, Vocab, simple_tokenize, collate_batch
+from qa_model import QADataset, Seq2SeqModel, Vocab
 
 DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 MODEL_DIR = os.getenv("MODEL_DIR", "spark_expert_model")
@@ -30,6 +26,7 @@ def load_checkpoint(model_dir):
 
 
 def main():
+    """Avalia o modelo simples de QA treinado com PyTorch."""
     model, vocab = load_checkpoint(MODEL_DIR)
     model.eval()
     dataset = QADataset(DATASET_FILE, vocab)
@@ -43,7 +40,7 @@ def main():
     model.to(device)
 
     for idx in samples:
-        q_idxs, a_idxs = dataset[idx]
+        q_idxs = dataset[idx]
         question = " ".join(dataset.questions[idx])
         expected = " ".join(dataset.answers[idx])
 

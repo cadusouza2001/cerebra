@@ -1,4 +1,3 @@
-"""Treina um modelo simples de Pergunta e Resposta utilizando PyTorch puro."""
 
 # ------------------------------------------------------
 # Este script mostra na prática vários conceitos vistos na
@@ -10,7 +9,6 @@
 # ------------------------------------------------------
 
 import os
-import json
 from pathlib import Path
 
 import torch
@@ -22,8 +20,8 @@ from qa_model import QADataset, collate_batch, Seq2SeqModel
 # ------------------------------------------------------------------
 # QADataset carrega o conjunto de exemplos Pergunta→Resposta.  Essa
 # é nossa base rotulada para "treinamento supervisionado".
-# collate_batch cuida do empacotamento em lotes (batches), algo que
-# comentamos bastante em aula quando falamos de mini-batch gradient
+# collate_batch cuida do empacotamento em lotes (batches), útil
+# quando falamos de mini-batch gradient
 # descent.
 # Seq2SeqModel é a rede neural propriamente dita (um encoder-decoder
 # com LSTMs).  Cada componente será criado logo abaixo.
@@ -37,11 +35,12 @@ from qa_model import QADataset, collate_batch, Seq2SeqModel
 # ------------------------------------------------------
 INPUT_DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 OUTPUT_MODEL_DIR = os.getenv("OUTPUT_MODEL_DIR", "spark_expert_model")
-NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 5))
+NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 100))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 32))
 
 
 def main():
+    """Treina um modelo simples de Pergunta e Resposta utilizando PyTorch puro."""
     print(f"Carregando dataset de '{INPUT_DATASET_FILE}'...")
     # Aqui entra o conceito de **dataset rotulado**. Cada linha do
     # arquivo contém uma pergunta e a resposta correta que o modelo
@@ -58,8 +57,8 @@ def main():
     )
 
     # DataLoader é responsável por dividir o dataset em *batches*.
-    # Cada batch passa pela rede em uma etapa do gradiente, como vimos
-    # na discussão de otimização com mini-batch.
+    # Cada batch passa pela rede em uma etapa do gradiente, se baseando
+    # em otimização com mini-batch.
 
     # Se houver GPU disponível, usamos CUDA. É a parte prática de
     # acelerar o treinamento das redes vistas em aula.

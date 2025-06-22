@@ -16,18 +16,16 @@ from txtai.embeddings import Embeddings
 # documento, conceito que estudamos em NLP para permitir medidas de
 # similaridade entre textos.
 
-# Configurable paths
 DATA_FILE = os.getenv("SCRAPED_FILE", "spark_docs_scrape/spark_guides_dataset_clean.jsonl")
 INDEX_PATH = os.getenv("INDEX_PATH", "spark_docs.index")
-MODEL_NAME = os.getenv("EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-
 # MODEL_NAME define qual rede pré-treinada usaremos para criar os vetores.
 # Modelos como os da família Sentence-Transformers já vêm treinados de
 # forma supervisionada para gerar embeddings semânticos eficientes.
+MODEL_NAME = os.getenv("EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
 
 def load_documents(path):
-    """Load text content from the scraped jsonl file."""
+    """Carrega o conteúdo de texto de um jsonl"""
     docs = []
     with open(path, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):
