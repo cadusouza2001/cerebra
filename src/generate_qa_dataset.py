@@ -26,6 +26,7 @@ OUTPUT_FILE = os.getenv("OUTPUT_FILE", "qa_dataset/spark_qa_generative_dataset.j
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "300"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "30"))
+CHUNKS_PER_REQUEST = int(os.getenv("CHUNKS_PER_REQUEST", "10"))
 
 SUCCESS_LOG = os.getenv("SUCCESS_LOG", "qa_dataset/processed_chunks.log")
 FAILED_LOG = os.getenv("FAILED_LOG", "qa_dataset/failed_chunks.log")
@@ -118,6 +119,77 @@ def call_llm_for_qa(model: genai.GenerativeModel, text_chunk: str) -> dict | Non
         return None
 
 
+def call_llm_for_qa_batch(
+    model: genai.GenerativeModel, text_chunks: list[str]
+) -> list[dict | None]:
+    """Envia vários trechos e retorna uma lista de pares QA."""
+
+    if not text_chunks:
+        return []
+
+    texts = "\n\n".join(
+        [f"Text {i+1}: \"{chunk}\"" for i, chunk in enumerate(text_chunks)]
+    )
+
+    prompt = f"""
+    Your task is to act as a helpful expert assistant who creates high-quality question-and-answer pairs from technical texts.
+    For each provided text, generate exactly one question and a complete, helpful answer.
+
+    CRITICAL INSTRUCTIONS:
+    1. Each answer should be a full, natural-sounding sentence or paragraph grounded in its respective text.
+    2. Your response MUST BE a valid JSON array in the same order of the input texts, where each element has the keys 'question' and 'answer'.
+
+    Example:
+    Text 1: "Example text"
+    Text 2: "Another text"
+    Your JSON Response:
+    [
+      {"question": "Q1", "answer": "A1"},
+      {"question": "Q2", "answer": "A2"}
+    ]
+
+    Now, process the following texts:
+    ---
+    {texts}
+    ---
+    Your JSON Response:
+    """
+
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(temperature=0.4),
+            request_options={"timeout": 100},
+        )
+
+        if not response.parts:
+            print("  └─ [AVISO] Resposta da API bloqueada.")
+            return [None for _ in text_chunks]
+
+        json_text = (
+            response.text.strip().replace("```json", "").replace("```", "")
+        )
+
+        data = json.loads(json_text)
+        if isinstance(data, list):
+            results: list[dict | None] = []
+            for item in data:
+                if isinstance(item, dict) and "question" in item and "answer" in item:
+                    results.append(item)
+                else:
+                    results.append(None)
+            # pad if fewer results were returned
+            if len(results) < len(text_chunks):
+                results.extend([None] * (len(text_chunks) - len(results)))
+            return results
+
+        print("  └─ [AVISO] Formato inesperado de resposta. Ignorado.")
+        return [None for _ in text_chunks]
+    except Exception as exc:
+        print(f"  └─ [ERRO] Falha na chamada da API: {exc}")
+        return [None for _ in text_chunks]
+
+
 def load_jsonl(path: str) -> Iterable[dict]:
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -137,28 +209,38 @@ def worker(api_key: str, queue: Queue, lock: Lock) -> None:
     last_request = 0.0
 
     while True:
+        batch: list[Tuple[int, str]] = []
+        # obtém pelo menos um item ou detecta fim
         item: Tuple[int, str] | None = queue.get()
         if item is None:
             break
+        batch.append(item)
 
-        idx, chunk = item
+        # pega mais itens até atingir o tamanho desejado, sem bloquear se não houver
+        while len(batch) < CHUNKS_PER_REQUEST and not queue.empty():
+            nxt = queue.get()
+            if nxt is None:
+                queue.put(None)
+                break
+            batch.append(nxt)
 
         wait = INTERVAL - (time.time() - last_request)
         if wait > 0:
             time.sleep(wait)
 
-        qa_pair = call_llm_for_qa(model, chunk)
+        qa_pairs = call_llm_for_qa_batch(model, [c for _, c in batch])
         last_request = time.time()
 
         with lock:
-            if qa_pair:
-                with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(qa_pair, ensure_ascii=False) + "\n")
-                with open(SUCCESS_LOG, "a", encoding="utf-8") as f:
-                    f.write(f"{idx}\n")
-            else:
-                with open(FAILED_LOG, "a", encoding="utf-8") as f:
-                    f.write(f"{idx}\n")
+            for (idx, _), qa_pair in zip(batch, qa_pairs):
+                if qa_pair:
+                    with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(qa_pair, ensure_ascii=False) + "\n")
+                    with open(SUCCESS_LOG, "a", encoding="utf-8") as f:
+                        f.write(f"{idx}\n")
+                else:
+                    with open(FAILED_LOG, "a", encoding="utf-8") as f:
+                        f.write(f"{idx}\n")
 
 
 def main() -> None:
