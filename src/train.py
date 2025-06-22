@@ -94,7 +94,7 @@ def main():
     best_val_loss = float("inf")
     # Se a perda de validação não melhorar por "patience" épocas,
     # encerramos o treino (early stopping)
-    patience = 5
+    patience = 10
     epochs_no_improve = 0
     for epoch in range(NUM_EPOCHS):
         # Cada passada completa no dataset é uma *época* (epoch).
@@ -152,7 +152,7 @@ def main():
             print(f"Epoch {epoch + 1}: nova melhor val_loss {avg_val_loss:.4f}, modelo salvo em {save_path}")
         else:
             epochs_no_improve += 1
-            
+
         # Checamos se a validação não melhora por várias épocas (early stopping)
         if epochs_no_improve >= patience:
             print(f"Early stopping acionado após {patience} épocas sem melhoria.")
