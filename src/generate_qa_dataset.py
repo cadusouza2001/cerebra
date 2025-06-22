@@ -144,8 +144,8 @@ def call_llm_for_qa_batch(
     Text 2: "Another text"
     Your JSON Response:
     [
-      {"question": "Q1", "answer": "A1"},
-      {"question": "Q2", "answer": "A2"}
+      {{"question": "Q1", "answer": "A1"}},
+      {{"question": "Q2", "answer": "A2"}}
     ]
 
     Now, process the following texts:
