@@ -152,10 +152,7 @@ def main():
             print(f"Epoch {epoch + 1}: nova melhor val_loss {avg_val_loss:.4f}, modelo salvo em {save_path}")
         else:
             epochs_no_improve += 1
-            print(
-                f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda treino: {avg_loss:.4f} - perda val: {avg_val_loss:.4f}"
-            )
-
+            
         # Checamos se a validação não melhora por várias épocas (early stopping)
         if epochs_no_improve >= patience:
             print(f"Early stopping acionado após {patience} épocas sem melhoria.")
