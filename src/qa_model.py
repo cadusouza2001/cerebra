@@ -92,18 +92,28 @@ def collate_batch(batch, pad_index: int, bos_index: int, eos_index: int):
 class Seq2SeqModel(nn.Module):
     """Minimal encoder-decoder network with embeddings and LSTMs."""
 
-    def __init__(self, vocab_size: int, embed_dim: int = 128, hidden_dim: int = 256):
+    def __init__(
+        self,
+        vocab_size: int,
+        embed_dim: int = 128,
+        hidden_dim: int = 256,
+        dropout: float = 0.3,
+    ):
         super().__init__()
+        # Embedding layer shared by encoder and decoder
         self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        # Dropout ajuda a regularizar o modelo evitando overfitting
+        self.dropout = nn.Dropout(dropout)
         self.encoder = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
         self.decoder = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, vocab_size)
 
     def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
         """Forward pass used for training."""
-        enc_emb = self.embedding(src)
+        # Aplicamos dropout logo após os embeddings para regularização
+        enc_emb = self.dropout(self.embedding(src))
         _, (hidden, cell) = self.encoder(enc_emb)
-        dec_emb = self.embedding(tgt[:, :-1])
+        dec_emb = self.dropout(self.embedding(tgt[:, :-1]))
         outputs, _ = self.decoder(dec_emb, (hidden, cell))
         logits = self.fc(outputs)
         return logits
@@ -113,11 +123,11 @@ class Seq2SeqModel(nn.Module):
         self.eval()
         generated = []
         with torch.no_grad():
-            enc_emb = self.embedding(src)
+            enc_emb = self.dropout(self.embedding(src))
             _, (hidden, cell) = self.encoder(enc_emb)
             inp = torch.tensor([[bos_index]], device=src.device)
             for _ in range(max_len):
-                dec_emb = self.embedding(inp)
+                dec_emb = self.dropout(self.embedding(inp))
                 output, (hidden, cell) = self.decoder(dec_emb, (hidden, cell))
                 logits = self.fc(output[:, -1])
                 pred = logits.argmax(1)

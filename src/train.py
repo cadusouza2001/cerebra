@@ -14,6 +14,7 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 
 from qa_model import QADataset, collate_batch, Seq2SeqModel
 
@@ -90,6 +91,11 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     history = []
+    best_val_loss = float("inf")
+    # Se a perda de validação não melhorar por "patience" épocas,
+    # encerramos o treino (early stopping)
+    patience = 5
+    epochs_no_improve = 0
     for epoch in range(NUM_EPOCHS):
         # Cada passada completa no dataset é uma *época* (epoch).
         model.train()
@@ -134,9 +140,24 @@ def main():
         # Registramos as perdas para análise posterior de convergência
         history.append((epoch + 1, avg_loss, avg_val_loss))
 
-        print(
-            f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda treino: {avg_loss:.4f} - perda val: {avg_val_loss:.4f}"
-        )
+        # Salvamos o modelo apenas quando ocorre melhoria na perda de validação
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            epochs_no_improve = 0
+            os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)
+            save_path = Path(OUTPUT_MODEL_DIR) / "model.pt"
+            torch.save({"model_state": model.state_dict(), "vocab": vocab.itos}, save_path)
+            print(f"Epoch {epoch + 1}: nova melhor val_loss {avg_val_loss:.4f}, modelo salvo em {save_path}")
+        else:
+            epochs_no_improve += 1
+            print(
+                f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda treino: {avg_loss:.4f} - perda val: {avg_val_loss:.4f}"
+            )
+
+        # Checamos se a validação não melhora por várias épocas (early stopping)
+        if epochs_no_improve >= patience:
+            print(f"Early stopping acionado após {patience} épocas sem melhoria.")
+            break
 
     # Exporta histórico de perdas para análise de gráficos.
     with open(LOG_FILE, "w", encoding="utf-8") as f:
@@ -144,11 +165,17 @@ def main():
         for ep, tr, vl in history:
             f.write(f"{ep},{tr:.6f},{vl:.6f}\n")
 
-    # Por fim salvamos os pesos e o vocabulário para usar na inferência.
-    os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)
-    save_path = Path(OUTPUT_MODEL_DIR) / "model.pt"
-    torch.save({"model_state": model.state_dict(), "vocab": vocab.itos}, save_path)
-    print(f"Modelo salvo em {save_path}")
+    # Gera e salva um gráfico com as curvas de perda de treino e validação
+    epochs, train_losses, val_losses = zip(*history)
+    plt.figure()
+    plt.plot(epochs, train_losses, label="treino")
+    plt.plot(epochs, val_losses, label="validação")
+    plt.xlabel("Época")
+    plt.ylabel("Perda")
+    plt.title("Curva de Perda")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("training_plot.png")
 
 
 if __name__ == "__main__":
