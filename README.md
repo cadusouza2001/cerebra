@@ -65,7 +65,7 @@ O foco está no **componente Reader**, responsável por formular a resposta com 
     └── train.py                  # Treino do modelo do zero
 ```
 
-## 1.6. Execução no Google Colab
+# 2. Execução no Google Colab
 
 1. **Preparação do ambiente**
 
