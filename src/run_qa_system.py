@@ -35,8 +35,8 @@ if __name__ == "__main__":
     # Exemplo de uso interativo: carregamos o modelo salvo
     system = SparkQASystem(model_dir="spark_expert_model")
     questions = [
-        "What is Apache Spark?",
-        "How to cache a Dataset?",
+        "What does Apache Spark do?",
+        "What is covered in the documentation?",
     ]
     for q in questions:
         ans = system.ask(q)
