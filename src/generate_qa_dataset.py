@@ -6,6 +6,7 @@ import time
 from multiprocessing import Lock, Process, Queue
 from pathlib import Path
 from typing import Iterable, Tuple
+import random
 
 import google.generativeai as genai
 
@@ -26,7 +27,7 @@ OUTPUT_FILE = os.getenv("OUTPUT_FILE", "qa_dataset/spark_qa_generative_dataset.j
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "300"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "30"))
-CHUNKS_PER_REQUEST = int(os.getenv("CHUNKS_PER_REQUEST", "10"))
+CHUNKS_PER_REQUEST = int(os.getenv("CHUNKS_PER_REQUEST", "30"))
 
 SUCCESS_LOG = os.getenv("SUCCESS_LOG", "qa_dataset/processed_chunks.log")
 FAILED_LOG = os.getenv("FAILED_LOG", "qa_dataset/failed_chunks.log")
@@ -46,6 +47,67 @@ if not API_KEYS:
         )
 
 INTERVAL = 60.0 / RATE_LIMIT
+
+# Termos técnicos que serão usados para validação das perguntas
+TECH_TERMS = {
+    "dataframe",
+    "dataset",
+    "rdd",
+    "cluster",
+    "executor",
+    "partition",
+    "spark",
+}
+
+QUESTION_STYLES = [
+    "explain",
+    "when to use",
+    "why",
+    "how does it work",
+]
+
+
+def random_style() -> str:
+    return random.choice(QUESTION_STYLES)
+
+
+def classify_chunk(text: str) -> str:
+    """Classifica a dificuldade do chunk por heurística."""
+    tokens = text.split()
+    term_count = sum(1 for term in TECH_TERMS if term in text.lower())
+    if len(tokens) < 50 and term_count < 3:
+        return "basic"
+    if len(tokens) < 120:
+        return "intermediate"
+    return "advanced"
+
+
+def quality_score(question: str, answer: str) -> float:
+    """Atribui um score simples de qualidade baseado no tamanho e termos."""
+    length_score = min(1.0, (len(question.split()) + len(answer.split())) / 150)
+    tech_score = (
+        sum(term in (question + " " + answer).lower() for term in TECH_TERMS)
+        / len(TECH_TERMS)
+    )
+    return round((length_score + tech_score) / 2, 3)
+
+
+def validate_qa_pair(pair: dict) -> bool:
+    """Verifica se o par segue os critérios mínimos de qualidade."""
+    if not pair or "question" not in pair or "answer" not in pair:
+        return False
+    q_tokens = pair["question"].split()
+    a_tokens = pair["answer"].split()
+    if len(q_tokens) < 10 or len(a_tokens) < 10:
+        return False
+    def uniq_ratio(tokens: list[str]) -> float:
+        return len(set(tokens)) / len(tokens) if tokens else 0.0
+    if uniq_ratio(q_tokens) < 0.5 or uniq_ratio(a_tokens) < 0.5:
+        return False
+    text = (pair["question"] + " " + pair["answer"]).lower()
+    if sum(term in text for term in TECH_TERMS) < 2:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +157,7 @@ def call_llm_for_qa(model: genai.GenerativeModel, text_chunk: str) -> dict | Non
     try:
         response = model.generate_content(
             prompt,
-            generation_config=genai.types.GenerationConfig(temperature=0.4),
+            generation_config=genai.types.GenerationConfig(temperature=0.35),
             request_options={"timeout": 100},
         )
 
@@ -127,17 +189,27 @@ def call_llm_for_qa_batch(
     if not text_chunks:
         return []
 
+    difficulties = [classify_chunk(c) for c in text_chunks]
+    styles = [random_style() for _ in text_chunks]
     texts = "\n\n".join(
-        [f"Text {i+1}: \"{chunk}\"" for i, chunk in enumerate(text_chunks)]
+        [
+            f"Text {i+1} (difficulty: {d}, style: {s}): \"{c}\""
+            for i, (c, d, s) in enumerate(zip(text_chunks, difficulties, styles))
+        ]
     )
 
     prompt = f"""
-    Your task is to act as a helpful expert assistant who creates high-quality question-and-answer pairs from technical texts.
-    For each provided text, generate exactly one question and a complete, helpful answer.
+    You are an expert in Apache Spark. For each provided text chunk, generate exactly one question and a complete, pedagogically helpful answer.
+    Each text comes with a suggested style (after the word 'style:'), which you must use when formulating the question.
+    Use the given difficulty label to adjust complexity:
+    - basic: formulate a straightforward question.
+    - intermediate: formulate a slightly deeper or "why/how" style question, possibly multiple choice.
+    - advanced: formulate an in-depth or comparative question that encourages detailed reasoning.
+    Enrich the answer with short analogies or examples when relevant and keep it grounded in the text.
 
     CRITICAL INSTRUCTIONS:
-    1. Each answer should be a full, natural-sounding sentence or paragraph grounded in its respective text.
-    2. Your response MUST BE a valid JSON array in the same order of the input texts, where each element has the keys 'question' and 'answer'.
+    1. Each answer must be grounded in its respective text.
+    2. Return a JSON array in the same order of the input texts, where each element has the keys 'question' and 'answer'.
 
     Example:
     Text 1: "Example text"
@@ -158,7 +230,7 @@ def call_llm_for_qa_batch(
     try:
         response = model.generate_content(
             prompt,
-            generation_config=genai.types.GenerationConfig(temperature=0.4),
+            generation_config=genai.types.GenerationConfig(temperature=0.35),
             request_options={"timeout": 100},
         )
 
@@ -232,8 +304,13 @@ def worker(api_key: str, queue: Queue, lock: Lock) -> None:
         last_request = time.time()
 
         with lock:
-            for (idx, _), qa_pair in zip(batch, qa_pairs):
-                if qa_pair:
+            for (idx, chunk), qa_pair in zip(batch, qa_pairs):
+                if qa_pair and validate_qa_pair(qa_pair):
+                    qa_pair["source_chunk"] = chunk
+                    qa_pair["chunk_index"] = idx
+                    qa_pair["quality_score"] = quality_score(
+                        qa_pair["question"], qa_pair["answer"]
+                    )
                     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
                         f.write(json.dumps(qa_pair, ensure_ascii=False) + "\n")
                     with open(SUCCESS_LOG, "a", encoding="utf-8") as f:
