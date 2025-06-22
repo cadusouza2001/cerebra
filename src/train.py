@@ -139,7 +139,9 @@ def main():
 
         # Registramos as perdas para análise posterior de convergência
         history.append((epoch + 1, avg_loss, avg_val_loss))
-
+        print(
+            f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda treino: {avg_loss:.4f} - perda val: {avg_val_loss:.4f}"
+        )
         # Salvamos o modelo apenas quando ocorre melhoria na perda de validação
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
