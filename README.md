@@ -44,27 +44,6 @@ O foco está no **componente Reader**, responsável por formular a resposta com 
 - `torch` para treinar a rede neural
 - `google-generativeai` para criar pares de pergunta e resposta
 
-## 1.5. Estrutura do Projeto
-
-```
-.
-├── qa_dataset/                    # Arquivos de treinamento
-│   └── spark_qa_generative_dataset.jsonl
-├── spark_docs_scrape/             # Dados raspados da documentação
-│   ├── spark_guides_dataset_clean.jsonl
-│   ├── visited_urls_clean.log
-│   └── visited_urls_guides.log
-└── src/
-    ├── demo.py                   # Exemplo rápido de uso
-    ├── evaluate_model.py         # Avaliação qualitativa
-    ├── generate_qa_dataset.py    # Cria o dataset com a API Gemini
-    ├── index_spark_docs.py       # Gera o índice semântico
-    ├── qa_model.py               # Modelo seq2seq em PyTorch
-    ├── run_qa_system.py          # Perguntas para o modelo treinado
-    ├── scrape_fast_resumable.py  # Raspagem assíncrona da documentação
-    └── train.py                  # Treino do modelo do zero
-```
-
 # 2. Execução no Google Colab
 
 1. **Preparação do ambiente**
