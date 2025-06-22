@@ -17,8 +17,8 @@ import os
 BASE_URL = "https://spark.apache.org/docs/latest/"
 START_URL = BASE_URL + "index.html"
 # Novos nomes de arquivo para indicar que os dados são limpos
-OUTPUT_FILE = "spark_guides_dataset_clean.jsonl" 
-VISITED_URLS_FILE = "visited_urls_clean.log"
+OUTPUT_FILE = "spark_docs_scrape/spark_guides_dataset_clean.jsonl" 
+VISITED_URLS_FILE = "spark_docs_scrape/visited_urls_clean.log"
 MAX_CONCURRENT_REQUESTS = 50
 
 # --- Armazenamento Compartilhado ---
