@@ -37,6 +37,7 @@ INPUT_DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_d
 OUTPUT_MODEL_DIR = os.getenv("OUTPUT_MODEL_DIR", "spark_expert_model")
 NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 100))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 32))
+LOG_FILE = os.getenv("TRAINING_LOG", "training_log.csv")
 
 
 def main():
@@ -49,10 +50,21 @@ def main():
     vocab = dataset.vocab
     print(f"{len(dataset)} pares de perguntas e respostas carregados.")
 
-    dataloader = DataLoader(
-        dataset,
+    # Dividimos em treino e validação (80/20) para monitorar overfitting.
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=BATCH_SIZE,
         shuffle=True,
+        collate_fn=lambda b: collate_batch(b, vocab.pad_index, vocab.bos_index, vocab.eos_index),
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
         collate_fn=lambda b: collate_batch(b, vocab.pad_index, vocab.bos_index, vocab.eos_index),
     )
 
@@ -77,11 +89,12 @@ def main():
     # (o famoso backpropagation). A taxa de aprendizado padrão é 1e-3.
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
+    history = []
     for epoch in range(NUM_EPOCHS):
         # Cada passada completa no dataset é uma *época* (epoch).
         model.train()
         total_loss = 0.0
-        for questions, answers in dataloader:
+        for questions, answers in train_loader:
             # Enviamos o lote para a CPU ou GPU
             questions = questions.to(device)
             answers = answers.to(device)
@@ -101,10 +114,35 @@ def main():
             optimizer.step()
             total_loss += loss.item()
 
-        # Acompanhamos a perda média para verificar se a rede está
-        # convergindo ou se poderia sofrer de overfitting/underfitting.
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda média: {avg_loss:.4f}")
+        avg_loss = total_loss / len(train_loader)
+
+        # Avaliamos no conjunto de validação sem atualizar os pesos
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for q_val, a_val in val_loader:
+                q_val = q_val.to(device)
+                a_val = a_val.to(device)
+                logits = model(q_val, a_val)
+                loss = criterion(
+                    logits.reshape(-1, logits.size(-1)),
+                    a_val[:, 1:].reshape(-1),
+                )
+                val_loss += loss.item()
+        avg_val_loss = val_loss / len(val_loader)
+
+        # Registramos as perdas para análise posterior de convergência
+        history.append((epoch + 1, avg_loss, avg_val_loss))
+
+        print(
+            f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda treino: {avg_loss:.4f} - perda val: {avg_val_loss:.4f}"
+        )
+
+    # Exporta histórico de perdas para análise de gráficos.
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        f.write("epoch,train_loss,val_loss\n")
+        for ep, tr, vl in history:
+            f.write(f"{ep},{tr:.6f},{vl:.6f}\n")
 
     # Por fim salvamos os pesos e o vocabulário para usar na inferência.
     os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)

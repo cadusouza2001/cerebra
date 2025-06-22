@@ -18,7 +18,7 @@ Redes neurais oferecem flexibilidade para capturar padrões linguísticos e gera
 O conjunto de dados foi gerado automaticamente a partir da documentação do Apache Spark usando a API Gemini. Cada entrada é composta por uma **pergunta gerada automaticamente** e uma **resposta contextualizada**, com base em trechos extraídos da documentação oficial.
 
 - **Formato:** JSONL com pares `{"question": ..., "answer": ...}`
-- **Tamanho aproximado:** 2.000 pares
+- **Tamanho aproximado:** 12.000 pares
 - **Pré-processamento:** chunking com sobreposição de texto e verificação de coerência da resposta com o trecho original
 - **Local:** `qa_dataset/spark_qa_generative_dataset.jsonl`
 
@@ -146,7 +146,11 @@ O foco está no **componente Reader**, responsável por formular a resposta com 
       ```python
       !python src/evaluate_model.py
       ```
-   6. Perguntas interativas
+   6. Geração de gráficos e análises
+      ```python
+      !python src/plot_graphs.py
+      ```
+   7. Perguntas interativas
       ```python
       !python src/run_qa_system.py
       ```

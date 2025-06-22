@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import torch
 
@@ -11,6 +12,7 @@ from qa_model import QADataset, Seq2SeqModel, Vocab
 DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 MODEL_DIR = os.getenv("MODEL_DIR", "spark_expert_model")
 NUM_SAMPLES = int(os.getenv("NUM_SAMPLES", 5))
+OUTPUT_FILE = os.getenv("EVAL_OUTPUT", "evaluation_results.jsonl")
 
 
 def load_checkpoint(model_dir):
@@ -32,28 +34,32 @@ def main():
     dataset = QADataset(DATASET_FILE, vocab)
 
     # Selecionamos aleatoriamente algumas amostras para inspecionar
-    # as respostas geradas. É uma forma simples de avaliação
-    # qualitativa, além das métricas automáticas vistas em aula.
-
+    # as respostas geradas. Também salvamos todas as previsões para
+    # posterior geração de gráficos.
     samples = random.sample(range(len(dataset)), min(NUM_SAMPLES, len(dataset)))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
 
-    for idx in samples:
-        q_idxs = dataset[idx]
-        question = " ".join(dataset.questions[idx])
-        expected = " ".join(dataset.answers[idx])
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        for idx in range(len(dataset)):
+            q_idxs = dataset[idx]
+            question = " ".join(dataset.questions[idx])
+            expected = " ".join(dataset.answers[idx])
 
-        q_tensor = torch.tensor([q_idxs], dtype=torch.long, device=device)
-        # Geração da resposta pelo modelo, assim como fazemos na fase
-        # de inferência do sistema.
-        pred_idxs = model.generate(q_tensor, vocab.bos_index, vocab.eos_index)
-        prediction = vocab.decode(pred_idxs)
+            q_tensor = torch.tensor([q_idxs], dtype=torch.long, device=device)
+            pred_idxs = model.generate(q_tensor, vocab.bos_index, vocab.eos_index)
+            prediction = vocab.decode(pred_idxs)
 
-        print("Q:", question)
-        print("GT:", expected)
-        print("Pred:", prediction)
-        print("-" * 40)
+            record = {"question": question, "expected": expected, "prediction": prediction}
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            if idx in samples:
+                print("Q:", question)
+                print("GT:", expected)
+                print("Pred:", prediction)
+                print("-" * 40)
+
+    print(f"Resultados salvos em {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ INDEX_PATH = os.getenv("INDEX_PATH", "spark_docs.index")
 # Modelos como os da família Sentence-Transformers já vêm treinados de
 # forma supervisionada para gerar embeddings semânticos eficientes.
 MODEL_NAME = os.getenv("EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+EMBEDDINGS_OUTPUT = os.getenv("EMBEDDINGS_OUTPUT", "doc_embeddings.npz")
 
 
 def load_documents(path):
@@ -47,6 +48,11 @@ def main():
     # O processo é similar à etapa de vetorização vista nas aulas de NLP.
     embeddings = Embeddings({"path": MODEL_NAME})
     embeddings.index(docs)
+
+    # Salvamos também os vetores para geração de gráficos (PCA/t-SNE)
+    import numpy as np
+    vectors = embeddings.transform([t for _, t in docs])
+    np.savez_compressed(EMBEDDINGS_OUTPUT, vectors=vectors)
 
     print(f"Salvando índice em '{INDEX_PATH}'...")
     # O índice salvo será usado pelo "Bibliotecário" para recuperar
