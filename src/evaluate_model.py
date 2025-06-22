@@ -1,42 +1,45 @@
-"""Simple evaluation script for the trained model."""
-
-# Avalia rapidamente o modelo de QA já treinado. Selecionamos algumas
-# perguntas do dataset de validação e verificamos qual resposta o modelo
-# gera, comparando com a resposta esperada.
+"""Avalia o modelo simples de QA treinado com PyTorch."""
 
 import os
 import json
 import random
-from transformers import pipeline
+import torch
+
+from qa_model import QADataset, Seq2SeqModel, Vocab, simple_tokenize, collate_batch
 
 DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 MODEL_DIR = os.getenv("MODEL_DIR", "spark_expert_model")
 NUM_SAMPLES = int(os.getenv("NUM_SAMPLES", 5))
 
-# NUM_SAMPLES controla quantos exemplos aleatórios iremos inspecionar.
 
-
-def load_samples(path, num_samples):
-    data = [json.loads(line) for line in open(path, "r", encoding="utf-8")]
-    # Selecionamos aleatoriamente 'num_samples' pares de P&R para a avaliação
-    return random.sample(data, min(num_samples, len(data)))
+def load_checkpoint(model_dir):
+    ckpt = torch.load(os.path.join(model_dir, "model.pt"), map_location="cpu")
+    vocab = Vocab([])
+    vocab.itos = ckpt["vocab"]
+    vocab.stoi = {t: i for i, t in enumerate(vocab.itos)}
+    model = Seq2SeqModel(len(vocab.itos))
+    model.load_state_dict(ckpt["model_state"])
+    return model, vocab
 
 
 def main():
-    samples = load_samples(DATASET_FILE, NUM_SAMPLES)
-    # Usamos a tarefa de text2text-generation pois o modelo é do tipo
-    # seq2seq (encoder-decoder), treinado para mapear perguntas em respostas.
-    generator = pipeline("text2text-generation", model=MODEL_DIR, tokenizer=MODEL_DIR)
-    # A pipeline encapsula o modelo seq2seq e a tokenização. Aqui usamos
-    # o mesmo checkpoint gerado em train.py.
+    model, vocab = load_checkpoint(MODEL_DIR)
+    model.eval()
+    dataset = QADataset(DATASET_FILE, vocab)
 
-    for sample in samples:
-        question = sample["question"]
-        expected = sample["answer"]
-        prediction = generator(question, max_new_tokens=128)[0]["generated_text"]
-        # Mostramos lado a lado pergunta, gabarito (ground truth) e
-        # a resposta gerada para que possamos avaliar qualitativamente a
-        # performance do modelo.
+    samples = random.sample(range(len(dataset)), min(NUM_SAMPLES, len(dataset)))
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+
+    for idx in samples:
+        q_idxs, a_idxs = dataset[idx]
+        question = " ".join(dataset.questions[idx])
+        expected = " ".join(dataset.answers[idx])
+
+        q_tensor = torch.tensor([q_idxs], dtype=torch.long, device=device)
+        pred_idxs = model.generate(q_tensor, vocab.bos_index, vocab.eos_index)
+        prediction = vocab.decode(pred_idxs)
+
         print("Q:", question)
         print("GT:", expected)
         print("Pred:", prediction)

@@ -1,116 +1,66 @@
-"""Train a generative QA model using the dataset created with generate_qa_dataset.py"""
+"""Treina um modelo simples de Pergunta e Resposta utilizando PyTorch puro."""
 
-# Script responsável por ajustar um modelo seq2seq (baseado em Transformer)
-# no conjunto de perguntas e respostas gerado previamente. Essa etapa de
-# fine-tuning segue o paradigma de aprendizado supervisionado: o modelo vê
-# a pergunta (entrada) e a resposta correta (rótulo) e tenta minimizá-la
-# através da função de perda cross-entropy.
+# Esta versão não usa Transformers pré-treinados. Construímos do zero uma
+# rede encoder-decoder pequena, baseada em embeddings e LSTMs. O objetivo é
+# demonstrar os conceitos de redes neurais aplicados a NLP e treinamento
+# supervisionado.
 
 import os
 import json
-from datasets import Dataset
-from transformers import (
-    AutoTokenizer,
-    AutoModelForSeq2SeqLM,
-    DataCollatorForSeq2Seq,
-    Seq2SeqTrainingArguments,
-    Seq2SeqTrainer,
-)
+from pathlib import Path
 
-# Paths can be configured via environment variables
-INPUT_DATASET_FILE = os.getenv(
-    "DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl"
-)
+import torch
+from torch import nn
+from torch.utils.data import DataLoader
+
+from qa_model import QADataset, collate_batch, Seq2SeqModel
+
+# Caminhos configuráveis por variáveis de ambiente
+INPUT_DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 OUTPUT_MODEL_DIR = os.getenv("OUTPUT_MODEL_DIR", "spark_expert_model")
-MODEL_CHECKPOINT = os.getenv("MODEL_CHECKPOINT", "google/flan-t5-base")
-
-# MODEL_CHECKPOINT define qual modelo base será fine-tuned. O Flan-T5
-# já possui arquitetura encoder-decoder, ideal para tarefas de geração
-# condicionada como QA.
-
-
-def load_dataset(path):
-    data = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            item = json.loads(line)
-            if "question" in item and "answer" in item:
-                data.append(item)
-    # Convertemos a lista em um objeto Dataset do Hugging Face para
-    # facilitar o manuseio durante o treinamento.
-    return Dataset.from_list(data)
-
-
-def preprocess_examples(examples, tokenizer, prefix="question: "):
-    # Prefixamos cada pergunta para ajudar o modelo a entender a tarefa,
-    # prática comum em fine-tuning de modelos como o T5.
-    inputs = [prefix + q for q in examples["question"]]
-    model_inputs = tokenizer(inputs, max_length=256, truncation=True)
-    labels = tokenizer(text_target=examples["answer"], max_length=256, truncation=True)
-    # O Trainer do Hugging Face espera que as labels estejam no campo "labels".
-    model_inputs["labels"] = labels["input_ids"]
-    return model_inputs
+NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 5))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", 32))
 
 
 def main():
-    # Função principal do treinamento
     print(f"Carregando dataset de '{INPUT_DATASET_FILE}'...")
-    dataset = load_dataset(INPUT_DATASET_FILE)
-    print(f"{len(dataset)} pares de P&R carregados.")
+    dataset = QADataset(INPUT_DATASET_FILE)
+    vocab = dataset.vocab
+    print(f"{len(dataset)} pares de perguntas e respostas carregados.")
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_CHECKPOINT)
-    model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_CHECKPOINT)
-
-    # Aplicamos o pré-processamento em todo o dataset (tokenização das
-    # perguntas e das respostas). "batched=True" usa vetorização para
-    # acelerar.
-
-    tokenized = dataset.map(
-        lambda ex: preprocess_examples(ex, tokenizer),
-        batched=True,
-        remove_columns=dataset.column_names,
+    dataloader = DataLoader(
+        dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        collate_fn=lambda b: collate_batch(b, vocab.pad_index, vocab.bos_index, vocab.eos_index),
     )
 
-    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = Seq2SeqModel(len(vocab.itos)).to(device)
+    criterion = nn.CrossEntropyLoss(ignore_index=vocab.pad_index)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    training_args = Seq2SeqTrainingArguments(
-        output_dir=OUTPUT_MODEL_DIR,
-        evaluation_strategy="epoch",
-        learning_rate=2e-5,
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        weight_decay=0.01,
-        num_train_epochs=3,
-        predict_with_generate=True,
-        fp16=True,
-    )
+    for epoch in range(NUM_EPOCHS):
+        model.train()
+        total_loss = 0.0
+        for questions, answers in dataloader:
+            questions = questions.to(device)
+            answers = answers.to(device)
 
-    # Seq2SeqTrainer cuida do loop de treinamento, aplicando otimização
-    # (AdamW por padrão) e cálculo da perda de cross-entropy.
+            optimizer.zero_grad()
+            logits = model(questions, answers)
+            loss = criterion(logits.reshape(-1, logits.size(-1)), answers[:, 1:].reshape(-1))
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
 
-    trainer = Seq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized,
-        eval_dataset=tokenized,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-    )
-
-    print("\n==============================")
-    print("Iniciando treinamento...")
-    trainer.train()
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch + 1}/{NUM_EPOCHS} - perda média: {avg_loss:.4f}")
 
     os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)
-    print("Salvando modelo em", OUTPUT_MODEL_DIR)
-    trainer.save_model(OUTPUT_MODEL_DIR)
-    tokenizer.save_pretrained(OUTPUT_MODEL_DIR)
-
-    metrics = trainer.evaluate()
-    # Ao final do treinamento avaliamos o desempenho no conjunto de
-    # validação, obtendo métricas como a perda. Valores menores indicam
-    # que o modelo está reproduzindo bem as respostas do dataset.
-    print("Métricas de avaliação:", metrics)
+    save_path = Path(OUTPUT_MODEL_DIR) / "model.pt"
+    torch.save({"model_state": model.state_dict(), "vocab": vocab.itos}, save_path)
+    print(f"Modelo salvo em {save_path}")
 
 
 if __name__ == "__main__":
