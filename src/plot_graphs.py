@@ -63,6 +63,8 @@ def plot_confusion(eval_path=EVAL_FILE, top_k=20):
 
 def plot_embeddings(emb_path=EMB_FILE):
     data = np.load(emb_path)['vectors']
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
     pca = PCA(n_components=2)
     proj = pca.fit_transform(data)
     plt.figure()

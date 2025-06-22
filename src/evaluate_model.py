@@ -42,7 +42,7 @@ def main():
 
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         for idx in range(len(dataset)):
-            q_idxs = dataset[idx]
+            q_idxs, _ = dataset[idx]
             question = " ".join(dataset.questions[idx])
             expected = " ".join(dataset.answers[idx])
 
