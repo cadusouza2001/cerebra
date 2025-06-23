@@ -58,10 +58,7 @@ def main():
         num_train_epochs=num_epochs,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
         logging_steps=10,
-        load_best_model_at_end=True,
     )
 
     trainer = Trainer(
