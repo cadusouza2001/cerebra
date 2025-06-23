@@ -36,7 +36,7 @@ from qa_model import QADataset, collate_batch, Seq2SeqModel
 # ------------------------------------------------------
 INPUT_DATASET_FILE = os.getenv("DATASET_FILE", "qa_dataset/spark_qa_generative_dataset.jsonl")
 OUTPUT_MODEL_DIR = os.getenv("OUTPUT_MODEL_DIR", "spark_expert_model")
-NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 100))
+NUM_EPOCHS = int(os.getenv("NUM_EPOCHS", 1000))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", 32))
 LOG_FILE = os.getenv("TRAINING_LOG", "training_log.csv")
 
@@ -94,7 +94,7 @@ def main():
     best_val_loss = float("inf")
     # Se a perda de validação não melhorar por "patience" épocas,
     # encerramos o treino (early stopping)
-    patience = 10
+    patience = 50
     epochs_no_improve = 0
     for epoch in range(NUM_EPOCHS):
         # Cada passada completa no dataset é uma *época* (epoch).
