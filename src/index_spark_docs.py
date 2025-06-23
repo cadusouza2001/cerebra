@@ -46,7 +46,9 @@ def main():
 
     # Aqui geramos um vetor para cada documento usando o modelo pré-treinado.
     # O processo é similar à etapa de vetorização vista nas aulas de NLP.
-    embeddings = Embeddings({"path": MODEL_NAME})
+    # Ativamos a opcao 'content' para que o texto original seja salvo junto com
+    # os vetores. Assim, buscas posteriores retornam tambem os trechos de texto.
+    embeddings = Embeddings({"path": MODEL_NAME, "content": True})
     embeddings.index(docs)
 
     # Salvamos também os vetores para geração de gráficos (PCA/t-SNE)

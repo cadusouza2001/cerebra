@@ -44,6 +44,22 @@ O foco está no **componente Reader**, responsável por formular a resposta com 
 - `torch` para treinar a rede neural
 - `google-generativeai` para criar pares de pergunta e resposta
 
+## 1.5. Indexação e Recuperação
+
+O script `index_spark_docs.py` converte cada página da documentação em um vetor
+semântico usando `txtai`. O índice resultante é salvo em `spark_docs.index` e,
+com a opção `content=True`, o texto original fica acessível para buscas.
+Durante a inferência, `run_qa_system.py` carrega esse índice e utiliza os
+trechos recuperados como contexto para o modelo.
+
+### 1.6. Fazendo Perguntas
+
+Com o índice criado e o modelo treinado, é possível fazer perguntas via linha de
+comando passando a questão diretamente para `run_qa_system.py`:
+
+```bash
+python src/run_qa_system.py "What is Apache Spark?"
+```
 
 # 2. Execução no Google Colab
 

@@ -1,0 +1,16 @@
+{
+  "path": "sentence-transformers/all-MiniLM-L6-v2",
+  "dimensions": 384,
+  "backend": "faiss",
+  "offset": 194,
+  "build": {
+    "create": "2025-06-22T22:55:20Z",
+    "python": "3.11.11",
+    "settings": {
+      "components": "IDMap,Flat"
+    },
+    "system": "Linux (x86_64)",
+    "txtai": "8.6.0"
+  },
+  "update": "2025-06-22T22:55:20Z"
+}
