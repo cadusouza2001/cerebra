@@ -27,6 +27,8 @@ O conjunto de dados foi gerado automaticamente a partir da documentação do Apa
 ## 1.4. Arquitetura do Modelo
 
 A rede neural utilizada para geração de respostas é um modelo **seq2seq** (codificador-decodificador) treinado com PyTorch. O modelo foi criado do zero no script `qa_model.py` e treinado com o script `train.py`.
+Como o volume de dados é limitado, também disponibilizamos um exemplo de **fine-tuning** de um modelo pré-treinado (`t5-small`) no script `fine_tune_t5.py`.
+Essa abordagem reutiliza o conhecimento de um modelo grande e reduz o tempo de treinamento.
 
 - **Número de camadas:** 2 camadas LSTM (encoder e decoder)
 - **Função de ativação:** tanh (implícita nas células LSTM)
